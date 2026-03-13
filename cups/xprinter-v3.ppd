@@ -1,0 +1,138 @@
+*PPD-Adobe: "4.3"
+*FormatVersion: "4.3"
+*FileVersion: "1.0"
+*LanguageVersion: English
+*LanguageEncoding: ISOLatin1
+*PCFileName: "xprtv3.ppd"
+*Manufacturer: "Xprinter"
+*Product: "(Xprinter V3)"
+*ModelName: "Xprinter V3 Thermal Label"
+*ShortNickName: "Xprinter V3"
+*NickName: "Xprinter V3 Thermal Label Printer"
+*PSVersion: "(3010.000) 0"
+*LanguageLevel: "3"
+*ColorDevice: False
+*DefaultColorSpace: Gray
+*FileSystem: False
+*Throughput: "1"
+*LandscapeOrientation: Plus90
+*TTRasterizer: Type42
+*% Filter: takes PDF input, outputs TSPL via our filter
+*cupsFilter: "application/vnd.cups-pdf 0 xprinter-tspl"
+*cupsModelNumber: 0
+*cupsManualCopies: True
+
+*% ============ Resolution ============
+*OpenUI *Resolution/Resolution: PickOne
+*OrderDependency: 10 AnySetup *Resolution
+*DefaultResolution: 203dpi
+*Resolution 203dpi/203 DPI (Standard): "<</HWResolution[203 203]>>setpagedevice"
+*CloseUI: *Resolution
+
+*% ============ Label Sizes (PageSize) ============
+*OpenUI *PageSize/Label Size: PickOne
+*OrderDependency: 30 AnySetup *PageSize
+*DefaultPageSize: w164h113
+
+*PageSize w57h28/20 x 10 mm: "<</PageSize[57 28]/ImagingBBox null>>setpagedevice"
+*PageSize w85h57/30 x 20 mm: "<</PageSize[85 57]/ImagingBBox null>>setpagedevice"
+*PageSize w113h57/40 x 20 mm: "<</PageSize[113 57]/ImagingBBox null>>setpagedevice"
+*PageSize w113h85/40 x 30 mm: "<</PageSize[113 85]/ImagingBBox null>>setpagedevice"
+*PageSize w164h85/58 x 30 mm: "<</PageSize[164 85]/ImagingBBox null>>setpagedevice"
+*PageSize w164h113/58 x 40 mm: "<</PageSize[164 113]/ImagingBBox null>>setpagedevice"
+*PageSize w170h113/60 x 40 mm: "<</PageSize[170 113]/ImagingBBox null>>setpagedevice"
+*PageSize w227h142/80 x 50 mm: "<</PageSize[227 142]/ImagingBBox null>>setpagedevice"
+*PageSize w227h170/80 x 60 mm: "<</PageSize[227 170]/ImagingBBox null>>setpagedevice"
+*PageSize w283h170/100 x 60 mm: "<</PageSize[283 170]/ImagingBBox null>>setpagedevice"
+*PageSize w283h198/100 x 70 mm: "<</PageSize[283 198]/ImagingBBox null>>setpagedevice"
+*PageSize w283h425/100 x 150 mm: "<</PageSize[283 425]/ImagingBBox null>>setpagedevice"
+*PageSize w340h213/120 x 75 mm: "<</PageSize[340 213]/ImagingBBox null>>setpagedevice"
+
+*CloseUI: *PageSize
+
+*% ============ PageRegion (mirrors PageSize) ============
+*OpenUI *PageRegion: PickOne
+*OrderDependency: 40 AnySetup *PageRegion
+*DefaultPageRegion: w164h113
+
+*PageRegion w57h28/20 x 10 mm: "<</PageSize[57 28]/ImagingBBox null>>setpagedevice"
+*PageRegion w85h57/30 x 20 mm: "<</PageSize[85 57]/ImagingBBox null>>setpagedevice"
+*PageRegion w113h57/40 x 20 mm: "<</PageSize[113 57]/ImagingBBox null>>setpagedevice"
+*PageRegion w113h85/40 x 30 mm: "<</PageSize[113 85]/ImagingBBox null>>setpagedevice"
+*PageRegion w164h85/58 x 30 mm: "<</PageSize[164 85]/ImagingBBox null>>setpagedevice"
+*PageRegion w164h113/58 x 40 mm: "<</PageSize[164 113]/ImagingBBox null>>setpagedevice"
+*PageRegion w170h113/60 x 40 mm: "<</PageSize[170 113]/ImagingBBox null>>setpagedevice"
+*PageRegion w227h142/80 x 50 mm: "<</PageSize[227 142]/ImagingBBox null>>setpagedevice"
+*PageRegion w227h170/80 x 60 mm: "<</PageSize[227 170]/ImagingBBox null>>setpagedevice"
+*PageRegion w283h170/100 x 60 mm: "<</PageSize[283 170]/ImagingBBox null>>setpagedevice"
+*PageRegion w283h198/100 x 70 mm: "<</PageSize[283 198]/ImagingBBox null>>setpagedevice"
+*PageRegion w283h425/100 x 150 mm: "<</PageSize[283 425]/ImagingBBox null>>setpagedevice"
+*PageRegion w340h213/120 x 75 mm: "<</PageSize[340 213]/ImagingBBox null>>setpagedevice"
+
+*CloseUI: *PageRegion
+
+*% ============ ImageableArea (full bleed — no margins) ============
+*DefaultImageableArea: w164h113
+
+*ImageableArea w57h28/20 x 10 mm: "0 0 57 28"
+*ImageableArea w85h57/30 x 20 mm: "0 0 85 57"
+*ImageableArea w113h57/40 x 20 mm: "0 0 113 57"
+*ImageableArea w113h85/40 x 30 mm: "0 0 113 85"
+*ImageableArea w164h85/58 x 30 mm: "0 0 164 85"
+*ImageableArea w164h113/58 x 40 mm: "0 0 164 113"
+*ImageableArea w170h113/60 x 40 mm: "0 0 170 113"
+*ImageableArea w227h142/80 x 50 mm: "0 0 227 142"
+*ImageableArea w227h170/80 x 60 mm: "0 0 227 170"
+*ImageableArea w283h170/100 x 60 mm: "0 0 283 170"
+*ImageableArea w283h198/100 x 70 mm: "0 0 283 198"
+*ImageableArea w283h425/100 x 150 mm: "0 0 283 425"
+*ImageableArea w340h213/120 x 75 mm: "0 0 340 213"
+
+*% ============ PaperDimension ============
+*DefaultPaperDimension: w164h113
+
+*PaperDimension w57h28/20 x 10 mm: "57 28"
+*PaperDimension w85h57/30 x 20 mm: "85 57"
+*PaperDimension w113h57/40 x 20 mm: "113 57"
+*PaperDimension w113h85/40 x 30 mm: "113 85"
+*PaperDimension w164h85/58 x 30 mm: "164 85"
+*PaperDimension w164h113/58 x 40 mm: "164 113"
+*PaperDimension w170h113/60 x 40 mm: "170 113"
+*PaperDimension w227h142/80 x 50 mm: "227 142"
+*PaperDimension w227h170/80 x 60 mm: "227 170"
+*PaperDimension w283h170/100 x 60 mm: "283 170"
+*PaperDimension w283h198/100 x 70 mm: "283 198"
+*PaperDimension w283h425/100 x 150 mm: "283 425"
+*PaperDimension w340h213/120 x 75 mm: "340 213"
+
+*% ============ Custom Options ============
+*OpenUI *XprinterDensity/Print Darkness: PickOne
+*OrderDependency: 50 AnySetup *XprinterDensity
+*DefaultXprinterDensity: 8
+*XprinterDensity 1/1 (Lightest): ""
+*XprinterDensity 3/3 (Light): ""
+*XprinterDensity 5/5 (Medium-Light): ""
+*XprinterDensity 8/8 (Normal): ""
+*XprinterDensity 10/10 (Dark): ""
+*XprinterDensity 12/12 (Darker): ""
+*XprinterDensity 15/15 (Darkest): ""
+*CloseUI: *XprinterDensity
+
+*OpenUI *XprinterSpeed/Print Speed: PickOne
+*OrderDependency: 50 AnySetup *XprinterSpeed
+*DefaultXprinterSpeed: 3
+*XprinterSpeed 1/1 (Slowest): ""
+*XprinterSpeed 2/2: ""
+*XprinterSpeed 3/3 (Normal): ""
+*XprinterSpeed 4/4: ""
+*XprinterSpeed 5/5 (Fastest): ""
+*CloseUI: *XprinterSpeed
+
+*OpenUI *XprinterGap/Label Gap: PickOne
+*OrderDependency: 50 AnySetup *XprinterGap
+*DefaultXprinterGap: 2
+*XprinterGap 0/0 mm (No Gap): ""
+*XprinterGap 2/2 mm (Standard): ""
+*XprinterGap 3/3 mm: ""
+*XprinterGap 4/4 mm: ""
+*CloseUI: *XprinterGap

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=XPrinter Label
+Name[ru]=XPrinter Этикетки
+Comment=Print PDF labels on Xprinter thermal printers
+Comment[ru]=Печать PDF этикеток на термопринтерах Xprinter
+Exec=python3 /home/dots/Документы/projects/xprinter-label-gui/main.py
+Icon=printer
+Terminal=false
+Categories=Utility;Printing;
+MimeType=application/pdf;

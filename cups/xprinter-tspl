@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""
+CUPS filter for Xprinter thermal label printers.
+
+Converts PDF input to TSPL/TSPL2 bitmap commands.
+
+Called by CUPS as:
+    xprinter-tspl job-id user title copies options [filename]
+
+Reads PDF from filename (or stdin), outputs TSPL to stdout.
+"""
+
+import sys
+import os
+import struct
+import tempfile
+
+# CUPS filter exit codes
+CUPS_BACKEND_OK = 0
+CUPS_BACKEND_FAILED = 1
+
+
+def mm_to_dots(mm, dpi=203):
+    return int(mm * dpi / 25.4)
+
+
+def pts_to_mm(pts):
+    return pts * 25.4 / 72.0
+
+
+def log(msg):
+    """Log to CUPS error log (stderr)."""
+    sys.stderr.write(f"ERROR: [xprinter-tspl] {msg}\n")
+    sys.stderr.flush()
+
+
+def info(msg):
+    sys.stderr.write(f"INFO: [xprinter-tspl] {msg}\n")
+    sys.stderr.flush()
+
+
+def parse_options(options_str):
+    """Parse CUPS options string into a dict."""
+    opts = {}
+    for item in options_str.split():
+        if "=" in item:
+            k, v = item.split("=", 1)
+            opts[k] = v
+        else:
+            opts[item] = "true"
+    return opts
+
+
+def get_page_size_mm(opts):
+    """Extract page/label size in mm from CUPS options."""
+    # CUPS passes PageSize option; we parse the PPD name like w164h113
+    page_size = opts.get("PageSize", "w164h113")
+
+    # Parse wXXXhYYY format (values are in points)
+    if page_size.startswith("w") and "h" in page_size:
+        parts = page_size[1:].split("h")
+        try:
+            w_pts = float(parts[0])
+            h_pts = float(parts[1])
+            return pts_to_mm(w_pts), pts_to_mm(h_pts)
+        except (ValueError, IndexError):
+            pass
+
+    # Default: 58x40mm
+    return 58.0, 40.0
+
+
+def pdf_to_tspl(pdf_path, copies, options):
+    """Convert PDF to TSPL commands and write to stdout."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        log("PyMuPDF (fitz) not installed. Run: pip3 install PyMuPDF")
+        return CUPS_BACKEND_FAILED
+
+    try:
+        from PIL import Image
+    except ImportError:
+        log("Pillow not installed. Run: pip3 install Pillow")
+        return CUPS_BACKEND_FAILED
+
+    opts = parse_options(options)
+
+    # Get label dimensions
+    width_mm, height_mm = get_page_size_mm(opts)
+    info(f"Label size: {width_mm:.1f} x {height_mm:.1f} mm")
+
+    # Get printer options
+    density = int(opts.get("XprinterDensity", "8"))
+    speed = int(opts.get("XprinterSpeed", "3"))
+    gap_mm = int(opts.get("XprinterGap", "2"))
+
+    dpi = 203
+    target_w = mm_to_dots(width_mm, dpi)
+    target_h = mm_to_dots(height_mm, dpi)
+
+    info(f"Target: {target_w}x{target_h} dots, density={density}, speed={speed}, gap={gap_mm}mm")
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        log(f"Failed to open PDF: {e}")
+        return CUPS_BACKEND_FAILED
+
+    stdout_bin = os.fdopen(sys.stdout.fileno(), "wb", closefd=False)
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+
+        info(f"Processing page {page_num + 1}/{len(doc)}")
+
+        # Render page at printer DPI
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+        # Scale to fit label, maintaining aspect ratio
+        scale = min(target_w / img.width, target_h / img.height)
+        new_w = int(img.width * scale)
+        new_h = int(img.height * scale)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+
+        # Center on white canvas
+        canvas = Image.new("RGB", (target_w, target_h), (255, 255, 255))
+        x_off = (target_w - new_w) // 2
+        y_off = (target_h - new_h) // 2
+        canvas.paste(img, (x_off, y_off))
+
+        # Convert to 1-bit monochrome
+        mono = canvas.convert("L").convert("1")
+
+        # Build bitmap data (TSPL format: 1=black, MSB first)
+        width_bytes = (target_w + 7) // 8
+        bitmap_data = bytearray(width_bytes * target_h)
+        raw = mono.tobytes()
+
+        for row in range(target_h):
+            for col in range(target_w):
+                idx = row * target_w + col
+                if idx < len(raw) and raw[idx] == 0:  # black pixel
+                    byte_idx = row * width_bytes + col // 8
+                    bit_idx = 7 - (col % 8)
+                    bitmap_data[byte_idx] |= (1 << bit_idx)
+
+        # Build TSPL commands
+        tspl = b""
+        tspl += f"SIZE {width_mm:.1f} mm, {height_mm:.1f} mm\r\n".encode("ascii")
+        tspl += f"GAP {gap_mm} mm, 0 mm\r\n".encode("ascii")
+        tspl += f"DIRECTION 1,0\r\n".encode("ascii")
+        tspl += f"DENSITY {density}\r\n".encode("ascii")
+        tspl += f"SPEED {speed}\r\n".encode("ascii")
+        tspl += b"CLS\r\n"
+        tspl += f"BITMAP 0,0,{width_bytes},{target_h},0,".encode("ascii")
+        tspl += bytes(bitmap_data)
+        tspl += f"\r\nPRINT {copies},1\r\n".encode("ascii")
+
+        stdout_bin.write(tspl)
+
+    stdout_bin.flush()
+    doc.close()
+    info("Done")
+    return CUPS_BACKEND_OK
+
+
+def main():
+    if len(sys.argv) < 6 or len(sys.argv) > 7:
+        sys.stderr.write(
+            "Usage: xprinter-tspl job-id user title copies options [filename]\n"
+        )
+        return CUPS_BACKEND_FAILED
+
+    job_id = sys.argv[1]
+    user = sys.argv[2]
+    title = sys.argv[3]
+    copies = int(sys.argv[4])
+    options = sys.argv[5]
+    filename = sys.argv[6] if len(sys.argv) == 7 else None
+
+    info(f"Job {job_id}: '{title}' by {user}, {copies} copies")
+
+    if filename:
+        pdf_path = filename
+    else:
+        # Read from stdin into temp file
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        try:
+            stdin_bin = os.fdopen(sys.stdin.fileno(), "rb", closefd=False)
+            while True:
+                chunk = stdin_bin.read(65536)
+                if not chunk:
+                    break
+                tmp.write(chunk)
+            tmp.close()
+            pdf_path = tmp.name
+        except Exception as e:
+            log(f"Failed to read stdin: {e}")
+            return CUPS_BACKEND_FAILED
+
+    try:
+        result = pdf_to_tspl(pdf_path, copies, options)
+    finally:
+        if not filename and os.path.exists(pdf_path):
+            os.unlink(pdf_path)
+
+    return result
+
+
+if __name__ == "__main__":
+    sys.exit(main())
