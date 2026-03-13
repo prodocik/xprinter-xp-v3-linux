@@ -2,8 +2,9 @@
 # Install Xprinter V3 as a CUPS printer.
 #
 # Usage:
+#   sudo ./install-cups.sh bluetooth              — автопоиск принтера
 #   sudo ./install-cups.sh bluetooth AA:BB:CC:DD:EE:FF
-#   sudo ./install-cups.sh usb /dev/usb/lp0
+#   sudo ./install-cups.sh usb [/dev/usb/lp0]
 #   sudo ./install-cups.sh wifi 192.168.1.100
 #
 set -e
@@ -27,12 +28,93 @@ PRINTER_NAME="XprinterV3"
 
 show_usage() {
     echo "Использование:"
-    echo "  sudo $0 bluetooth AA:BB:CC:DD:EE:FF    — подключение по Bluetooth"
+    echo "  sudo $0 bluetooth                       — автопоиск Bluetooth принтера"
+    echo "  sudo $0 bluetooth AA:BB:CC:DD:EE:FF    — подключение по Bluetooth (вручную)"
     echo "  sudo $0 usb [/dev/usb/lp0]             — подключение по USB"
     echo "  sudo $0 wifi 192.168.1.100              — подключение по WiFi"
     echo ""
     echo "Удаление:"
     echo "  sudo $0 remove                          — удалить принтер из системы"
+}
+
+find_bt_printer() {
+    echo "=== Поиск Bluetooth принтеров ==="
+    echo "Убедитесь, что принтер включён..."
+    echo ""
+
+    # First check already paired devices
+    PAIRED=$(bluetoothctl devices 2>/dev/null | grep -iE "xp|xprinter|printer|label" || true)
+    if [ -n "$PAIRED" ]; then
+        echo "Найдены спаренные устройства:"
+        echo "$PAIRED"
+        echo ""
+        # Extract first match
+        BT_FOUND=$(echo "$PAIRED" | head -1 | awk '{print $2}')
+        BT_NAME=$(echo "$PAIRED" | head -1 | cut -d' ' -f3-)
+        echo "→ Выбран: $BT_NAME ($BT_FOUND)"
+        return 0
+    fi
+
+    # Scan for new devices
+    echo "Спаренные принтеры не найдены. Сканирование (10 сек)..."
+    # Power on and start scan
+    bluetoothctl power on >/dev/null 2>&1 || true
+    bluetoothctl --timeout 10 scan on >/dev/null 2>&1 &
+    SCAN_PID=$!
+    sleep 10
+    kill $SCAN_PID 2>/dev/null || true
+    wait $SCAN_PID 2>/dev/null || true
+
+    # Check all discovered devices
+    ALL_DEVICES=$(bluetoothctl devices 2>/dev/null)
+    FOUND=$(echo "$ALL_DEVICES" | grep -iE "xp|xprinter|printer|label" || true)
+
+    if [ -n "$FOUND" ]; then
+        echo ""
+        echo "Найдены принтеры:"
+        echo "$FOUND"
+        echo ""
+        BT_FOUND=$(echo "$FOUND" | head -1 | awk '{print $2}')
+        BT_NAME=$(echo "$FOUND" | head -1 | cut -d' ' -f3-)
+        echo "→ Выбран: $BT_NAME ($BT_FOUND)"
+        return 0
+    fi
+
+    # Nothing found by name — show all devices and let user pick
+    if [ -n "$ALL_DEVICES" ]; then
+        echo ""
+        echo "Принтер не найден автоматически. Все обнаруженные устройства:"
+        echo ""
+        IDX=0
+        while IFS= read -r line; do
+            ADDR=$(echo "$line" | awk '{print $2}')
+            NAME=$(echo "$line" | cut -d' ' -f3-)
+            echo "  [$IDX] $NAME ($ADDR)"
+            IDX=$((IDX + 1))
+        done <<< "$ALL_DEVICES"
+        echo ""
+        read -p "Введите номер устройства (или Enter для отмены): " CHOICE
+        if [ -n "$CHOICE" ]; then
+            SELECTED=$(echo "$ALL_DEVICES" | sed -n "$((CHOICE + 1))p")
+            if [ -n "$SELECTED" ]; then
+                BT_FOUND=$(echo "$SELECTED" | awk '{print $2}')
+                BT_NAME=$(echo "$SELECTED" | cut -d' ' -f3-)
+                echo "→ Выбран: $BT_NAME ($BT_FOUND)"
+                return 0
+            fi
+        fi
+    fi
+
+    echo ""
+    echo "Принтер не найден. Убедитесь что:"
+    echo "  1. Принтер включён"
+    echo "  2. Bluetooth на компьютере включён"
+    echo "  3. Принтер в режиме обнаружения"
+    echo ""
+    echo "Или укажите адрес вручную:"
+    echo "  sudo $0 bluetooth AA:BB:CC:DD:EE:FF"
+    BT_FOUND=""
+    return 1
 }
 
 if [ $# -lt 1 ]; then
@@ -58,12 +140,18 @@ case "$MODE" in
         exit 0
         ;;
     bluetooth)
-        if [ $# -lt 2 ]; then
-            echo "Ошибка: укажите Bluetooth адрес"
-            show_usage
-            exit 1
+        if [ $# -ge 2 ]; then
+            BT_ADDR="$2"
+        else
+            # Автопоиск
+            BT_FOUND=""
+            BT_NAME=""
+            find_bt_printer
+            if [ -z "$BT_FOUND" ]; then
+                exit 1
+            fi
+            BT_ADDR="$BT_FOUND"
         fi
-        BT_ADDR="$2"
         # Create rfcomm binding
         RFCOMM_DEV="/dev/rfcomm0"
         echo "=== Настройка Bluetooth RFCOMM ==="

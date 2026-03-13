@@ -58,7 +58,10 @@ This installs system packages (`python3-gi`, `gir1.2-adw-1`, CUPS, Bluetooth lib
 Pick your connection type:
 
 ```bash
-# Bluetooth (replace with your printer's MAC address):
+# Bluetooth (auto-discovers the printer — just turn it on):
+sudo bash cups/install-cups.sh bluetooth
+
+# Bluetooth (manual MAC address):
 sudo bash cups/install-cups.sh bluetooth AA:BB:CC:DD:EE:FF
 
 # USB (auto-detects port, or specify manually):
@@ -68,6 +71,8 @@ sudo bash cups/install-cups.sh usb /dev/ttyUSB0
 # WiFi (replace with your printer's IP):
 sudo bash cups/install-cups.sh wifi 192.168.1.100
 ```
+
+The Bluetooth mode will automatically scan for Xprinter devices. If multiple devices are found, it shows a list to choose from.
 
 **Done.** The printer "Xprinter V3" now appears in every app's print dialog.
 
