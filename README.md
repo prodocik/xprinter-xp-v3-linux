@@ -78,23 +78,25 @@ sudo bash cups/install-cups.sh wifi 192.168.1.100
 
 The Bluetooth mode will automatically scan for Xprinter devices. If multiple devices are found, it shows a list to choose from.
 
-**Done.** The printer "Xprinter V3" now appears in every app's print dialog.
+**Done.** The printer "Xprinter V3" now appears in every app's print dialog. It is automatically set as default printer with fit-to-page scaling enabled.
 
-### 3. Set as default printer (recommended)
+### USB ↔ Bluetooth auto-switching
 
-```bash
-lpadmin -d XprinterV3
-```
+The installer sets up udev rules that automatically detect how the printer is connected:
+- **Plug in USB** → CUPS switches to USB (faster, more reliable)
+- **Unplug USB** → CUPS switches back to Bluetooth
 
-### 4. Enable fit-to-page scaling
-
-If you print PDFs designed for A4/Letter (e.g. from Chrome), enable automatic scaling to label size:
+You can also switch manually or check status:
 
 ```bash
-lpadmin -p XprinterV3 -o fit-to-page=true -o print-scaling=fit
+# Check current connection:
+xprinter-autoswitch --status
+
+# Force re-detect:
+sudo xprinter-autoswitch
 ```
 
-### 5. Print from anywhere
+### 3. Print from anywhere
 
 1. Open any PDF in your browser, Evince, or any application
 2. Press **Ctrl+P**

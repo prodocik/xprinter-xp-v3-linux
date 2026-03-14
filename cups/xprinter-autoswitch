@@ -1,0 +1,197 @@
+#!/bin/bash
+# Auto-detect Xprinter connection (USB or Bluetooth) and configure CUPS.
+#
+# Usage:
+#   xprinter-autoswitch              — detect and switch
+#   xprinter-autoswitch --status     — show current connection
+#
+# Called automatically by udev when USB printer is plugged/unplugged.
+
+PRINTER_NAME="XprinterV3"
+BT_ADDRESS=""  # Will be read from saved config or CUPS
+
+# Known Xprinter USB vendor IDs
+XPRINTER_USB_VIDS="0483 154f 4b43 0416"
+
+log() {
+    logger -t xprinter-autoswitch "$1"
+    echo "$1"
+}
+
+# Find Bluetooth address from current CUPS config or bluetoothctl
+get_bt_address() {
+    # Try current CUPS URI
+    local uri
+    uri=$(lpstat -v "$PRINTER_NAME" 2>/dev/null | grep -oP 'xprinter-bt://\K[A-Fa-f0-9]+')
+    if [ -n "$uri" ]; then
+        echo "$uri" | sed 's/\(..\)/\1:/g; s/:$//' | tr 'a-f' 'A-F'
+        return
+    fi
+
+    # Try bluetoothctl
+    local addr
+    addr=$(bluetoothctl devices 2>/dev/null | grep -iE "xp|xprinter|printer|label" | head -1 | awk '{print $2}')
+    if [ -n "$addr" ]; then
+        echo "$addr"
+        return
+    fi
+
+    # Try saved config
+    if [ -f /etc/xprinter-bt-address ]; then
+        cat /etc/xprinter-bt-address
+        return
+    fi
+}
+
+# Find USB printer device
+find_usb_device() {
+    # Check /dev/usb/lp*
+    for dev in /dev/usb/lp*; do
+        [ -e "$dev" ] || continue
+
+        # Verify it's an Xprinter by checking USB vendor ID
+        for sysdev in /sys/class/usbmisc/$(basename "$dev")/device/../; do
+            local vid
+            vid=$(cat "${sysdev}idVendor" 2>/dev/null)
+            for known_vid in $XPRINTER_USB_VIDS; do
+                if [ "$vid" = "$known_vid" ]; then
+                    echo "$dev"
+                    return 0
+                fi
+            done
+        done
+
+        # If we can't verify vendor, still return the device
+        # (user might have a different USB VID)
+        echo "$dev"
+        return 0
+    done
+
+    # Check /dev/ttyUSB* (serial USB)
+    for dev in /dev/ttyUSB*; do
+        [ -e "$dev" ] || continue
+        echo "$dev"
+        return 0
+    done
+
+    return 1
+}
+
+# Get current CUPS URI
+get_current_uri() {
+    lpstat -v "$PRINTER_NAME" 2>/dev/null | awk '{print $NF}'
+}
+
+show_status() {
+    local uri
+    uri=$(get_current_uri)
+    local usb_dev
+    usb_dev=$(find_usb_device 2>/dev/null)
+
+    echo "=== Xprinter Connection Status ==="
+    echo "CUPS URI:    ${uri:-not configured}"
+
+    if echo "$uri" | grep -q "usb://\|serial:.*ttyUSB"; then
+        echo "Connection:  USB"
+    elif echo "$uri" | grep -q "xprinter-bt://"; then
+        echo "Connection:  Bluetooth"
+    else
+        echo "Connection:  unknown"
+    fi
+
+    if [ -n "$usb_dev" ]; then
+        echo "USB device:  $usb_dev (connected)"
+    else
+        echo "USB device:  not connected"
+    fi
+
+    local bt_addr
+    bt_addr=$(get_bt_address)
+    if [ -n "$bt_addr" ]; then
+        local bt_connected
+        bt_connected=$(bluetoothctl info "$bt_addr" 2>/dev/null | grep "Connected: yes")
+        if [ -n "$bt_connected" ]; then
+            echo "Bluetooth:   $bt_addr (connected)"
+        else
+            echo "Bluetooth:   $bt_addr (paired, not connected)"
+        fi
+    else
+        echo "Bluetooth:   not configured"
+    fi
+}
+
+switch_to_usb() {
+    local dev="$1"
+    local uri
+
+    if [[ "$dev" == /dev/ttyUSB* ]]; then
+        uri="serial:${dev}?baud=9600"
+    else
+        uri="usb://${dev}"
+    fi
+
+    local current
+    current=$(get_current_uri)
+    if [ "$current" = "$uri" ]; then
+        log "Already on USB: $uri"
+        return 0
+    fi
+
+    log "Switching to USB: $uri"
+    lpadmin -p "$PRINTER_NAME" -v "$uri" -E 2>/dev/null
+    cupsenable "$PRINTER_NAME" 2>/dev/null
+    cupsaccept "$PRINTER_NAME" 2>/dev/null
+}
+
+switch_to_bluetooth() {
+    local bt_addr="$1"
+    local bt_flat
+    bt_flat=$(echo "$bt_addr" | tr -d ':')
+    local uri="xprinter-bt://${bt_flat}"
+
+    local current
+    current=$(get_current_uri)
+    if [ "$current" = "$uri" ]; then
+        log "Already on Bluetooth: $uri"
+        return 0
+    fi
+
+    log "Switching to Bluetooth: $uri"
+    lpadmin -p "$PRINTER_NAME" -v "$uri" -E 2>/dev/null
+    cupsenable "$PRINTER_NAME" 2>/dev/null
+    cupsaccept "$PRINTER_NAME" 2>/dev/null
+}
+
+main() {
+    if [ "$1" = "--status" ]; then
+        show_status
+        exit 0
+    fi
+
+    # Check if printer exists in CUPS
+    if ! lpstat -p "$PRINTER_NAME" >/dev/null 2>&1; then
+        log "Printer $PRINTER_NAME not found in CUPS. Run install-cups.sh first."
+        exit 1
+    fi
+
+    # Try USB first (faster, more reliable)
+    local usb_dev
+    usb_dev=$(find_usb_device 2>/dev/null)
+    if [ -n "$usb_dev" ]; then
+        switch_to_usb "$usb_dev"
+        exit 0
+    fi
+
+    # Fall back to Bluetooth
+    local bt_addr
+    bt_addr=$(get_bt_address)
+    if [ -n "$bt_addr" ]; then
+        switch_to_bluetooth "$bt_addr"
+        exit 0
+    fi
+
+    log "No Xprinter found (USB or Bluetooth)"
+    exit 1
+}
+
+main "$@"

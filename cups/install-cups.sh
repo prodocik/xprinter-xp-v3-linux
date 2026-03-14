@@ -215,9 +215,26 @@ apt-get install -y cups python3 python3-pip 2>/dev/null || true
 pip3 install PyMuPDF Pillow 2>/dev/null || pip3 install --break-system-packages PyMuPDF Pillow 2>/dev/null || true
 
 echo ""
-echo "=== Установка CUPS фильтра ==="
+echo "=== Установка CUPS фильтра и бэкендов ==="
 install -m 755 "$FILTER_SRC" "$FILTER_DIR/xprinter-tspl"
 install -m 644 "$PPD_SRC" "$PPD_DIR/xprinter-v3.ppd"
+
+# Install Bluetooth backend
+if [ -f "$SCRIPT_DIR/xprinter-bt" ]; then
+    install -m 700 "$SCRIPT_DIR/xprinter-bt" "$FILTER_DIR/../backend/xprinter-bt"
+    echo "Bluetooth backend установлен"
+fi
+
+# Install auto-switch script and udev rules
+if [ -f "$SCRIPT_DIR/xprinter-autoswitch" ]; then
+    install -m 755 "$SCRIPT_DIR/xprinter-autoswitch" /usr/local/bin/xprinter-autoswitch
+    echo "Скрипт автопереключения установлен"
+fi
+if [ -f "$SCRIPT_DIR/99-xprinter.rules" ]; then
+    install -m 644 "$SCRIPT_DIR/99-xprinter.rules" /etc/udev/rules.d/99-xprinter.rules
+    udevadm control --reload-rules 2>/dev/null || true
+    echo "Udev правила установлены (USB ↔ Bluetooth автопереключение)"
+fi
 
 echo ""
 echo "=== Регистрация принтера в CUPS ==="
@@ -236,7 +253,12 @@ lpadmin -p "$PRINTER_NAME" \
     -o XprinterDensity=8 \
     -o XprinterSpeed=3 \
     -o XprinterGap=2 \
-    -o PageSize=w164h113
+    -o PageSize=w164h113 \
+    -o fit-to-page=true \
+    -o print-scaling=fit
+
+# Set as default printer
+lpadmin -d "$PRINTER_NAME" 2>/dev/null || true
 
 echo ""
 echo "=== Готово! ==="

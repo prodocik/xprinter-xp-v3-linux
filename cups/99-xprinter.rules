@@ -1,0 +1,17 @@
+# Xprinter USB auto-detection
+# When USB printer is plugged in — switch CUPS to USB
+# When USB printer is unplugged — switch CUPS back to Bluetooth
+
+# USB printer plugged in (common Xprinter vendor IDs)
+ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="0483", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="154f", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="4b43", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="0416", RUN+="/usr/local/bin/xprinter-autoswitch"
+
+# USB printer unplugged — switch back to Bluetooth
+ACTION=="remove", SUBSYSTEM=="usbmisc", RUN+="/usr/local/bin/xprinter-autoswitch"
+
+# Serial USB (ttyUSB)
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="154f", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="remove", SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="0483|154f", RUN+="/usr/local/bin/xprinter-autoswitch"
