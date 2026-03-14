@@ -128,6 +128,9 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# Determine the real user (even under sudo)
+REAL_USER="${SUDO_USER:-$USER}"
+
 MODE="$1"
 
 case "$MODE" in
@@ -136,6 +139,9 @@ case "$MODE" in
         lpadmin -x "$PRINTER_NAME" 2>/dev/null || true
         rm -f "$FILTER_DIR/xprinter-tspl"
         rm -f "$PPD_DIR/xprinter-v3.ppd"
+        systemctl disable xprinter-rfcomm.service 2>/dev/null || true
+        rm -f /etc/systemd/system/xprinter-rfcomm.service
+        systemctl daemon-reload 2>/dev/null || true
         echo "Готово!"
         exit 0
         ;;
@@ -152,33 +158,27 @@ case "$MODE" in
             fi
             BT_ADDR="$BT_FOUND"
         fi
-        # Create rfcomm binding
-        RFCOMM_DEV="/dev/rfcomm0"
-        echo "=== Настройка Bluetooth RFCOMM ==="
-        rfcomm release 0 2>/dev/null || true
-        rfcomm bind 0 "$BT_ADDR" 1
-        DEVICE_URI="serial:$RFCOMM_DEV?baud=9600"
-        echo "Bluetooth: $BT_ADDR → $RFCOMM_DEV"
 
-        # Add rfcomm bind to startup
-        SYSTEMD_FILE="/etc/systemd/system/xprinter-rfcomm.service"
-        cat > "$SYSTEMD_FILE" << EOSVC
-[Unit]
-Description=Xprinter V3 Bluetooth RFCOMM bind
-After=bluetooth.target
+        echo "=== Настройка Bluetooth ==="
 
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/rfcomm bind 0 $BT_ADDR 1
-ExecStop=/usr/bin/rfcomm release 0
-RemainAfterExit=yes
+        # Ensure Bluetooth is powered on
+        bluetoothctl power on 2>/dev/null || true
 
-[Install]
-WantedBy=multi-user.target
-EOSVC
-        systemctl daemon-reload
-        systemctl enable xprinter-rfcomm.service
-        echo "Автозапуск rfcomm настроен"
+        # Pair if not already paired
+        PAIRED=$(bluetoothctl info "$BT_ADDR" 2>/dev/null | grep "Paired: yes" || true)
+        if [ -z "$PAIRED" ]; then
+            echo "Сопряжение с $BT_ADDR..."
+            bluetoothctl pair "$BT_ADDR" 2>/dev/null || true
+            sleep 2
+        fi
+
+        # Trust the device
+        bluetoothctl trust "$BT_ADDR" 2>/dev/null || true
+
+        # Use CUPS bluetooth:// backend (avoids AppArmor blocking serial)
+        BT_ADDR_NOCOLON=$(echo "$BT_ADDR" | tr -d ':')
+        DEVICE_URI="xprinter-bt://$BT_ADDR_NOCOLON"
+        echo "Bluetooth: $BT_ADDR → $DEVICE_URI"
         ;;
     usb)
         USB_PORT="${2:-/dev/usb/lp0}"

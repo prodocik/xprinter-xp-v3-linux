@@ -68,34 +68,49 @@ class TSPLBuilder:
         return b"".join(parts)
 
 
+def image_to_tspl_bitmap(image):
+    """
+    Convert a PIL Image to TSPL bitmap bytes.
+
+    TSPL BITMAP mode 0: 0=black dot, 1=white (no dot).
+    Uses Pillow bit packing — fast, no numpy needed.
+    Returns (width_bytes, bitmap_data).
+    """
+    gray = image.convert("L") if image.mode != "L" else image
+    w, h = gray.size
+    width_bytes = (w + 7) // 8
+
+    # Threshold and convert to 1-bit
+    # point(): pixel < 128 → 0 (black), >= 128 → 255 (white)
+    # Pillow mode '1' packed: 0=black, 1=white — matches TSPL convention
+    bw = gray.point(lambda x: 0 if x < 128 else 255, "1")
+    packed = bw.tobytes()
+
+    pillow_stride = (w + 7) // 8
+    if pillow_stride == width_bytes and len(packed) == width_bytes * h:
+        return width_bytes, packed
+
+    result = bytearray(width_bytes * h)
+    for row in range(h):
+        src_off = row * pillow_stride
+        dst_off = row * width_bytes
+        copy_len = min(pillow_stride, width_bytes)
+        result[dst_off:dst_off + copy_len] = packed[src_off:src_off + copy_len]
+    return width_bytes, bytes(result)
+
+
 def build_label_job(image_1bit, width_mm, height_mm, copies=1,
                     gap_mm=2, density=8, speed=3, dpi=203):
     """
-    Build a complete TSPL print job from a 1-bit PIL Image.
+    Build a complete TSPL print job from a PIL Image.
 
-    image_1bit: PIL Image in mode '1' (1-bit pixels), already sized to label.
+    image_1bit: PIL Image (any mode), already sized to label.
     Returns bytes ready to send to the printer.
     """
     w_dots = image_1bit.width
     h_dots = image_1bit.height
-    # Width must be byte-aligned
-    width_bytes = (w_dots + 7) // 8
 
-    # Convert PIL 1-bit image to raw bitmap bytes
-    # In PIL mode '1': 0=black, 255=white
-    # In TSPL BITMAP: 0=white, 1=black (inverted)
-    raw = image_1bit.tobytes()
-
-    # PIL packs 1-bit images as 1 byte per pixel in tobytes()
-    # We need to repack into bit-packed format for TSPL
-    bitmap_data = bytearray(width_bytes * h_dots)
-    for row in range(h_dots):
-        for col in range(w_dots):
-            px = raw[row * w_dots + col] if (row * w_dots + col) < len(raw) else 255
-            byte_idx = row * width_bytes + col // 8
-            bit_idx = 7 - (col % 8)
-            if px == 0:  # black pixel
-                bitmap_data[byte_idx] |= (1 << bit_idx)
+    width_bytes, bitmap_data = image_to_tspl_bitmap(image_1bit)
 
     builder = TSPLBuilder()
     builder.size(width_mm, height_mm)
@@ -104,7 +119,7 @@ def build_label_job(image_1bit, width_mm, height_mm, copies=1,
     builder.density(density)
     builder.speed(speed)
     builder.cls()
-    builder.bitmap(0, 0, width_bytes, h_dots, bytes(bitmap_data))
+    builder.bitmap(0, 0, width_bytes, h_dots, bitmap_data)
     builder.print_label(copies)
 
     return builder.build()

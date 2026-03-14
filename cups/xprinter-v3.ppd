@@ -17,7 +17,7 @@
 *Throughput: "1"
 *LandscapeOrientation: Plus90
 *TTRasterizer: Type42
-*% Filter: takes PDF input, outputs TSPL via our filter
+*% Filter: pdftopdf scales/crops PDF to label size, then our filter converts to TSPL
 *cupsFilter: "application/vnd.cups-pdf 0 xprinter-tspl"
 *cupsModelNumber: 0
 *cupsManualCopies: True

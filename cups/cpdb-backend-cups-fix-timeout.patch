@@ -1,0 +1,22 @@
+diff --git a/src/print_backend_cups.c b/src/print_backend_cups.c
+index 7d7c8b3..6b8bcf3 100644
+--- a/src/print_backend_cups.c
++++ b/src/print_backend_cups.c
+@@ -308,7 +308,7 @@ gpointer list_printers(gpointer _dialog_name)
+     int *cancel = get_dialog_cancel(b, dialog_name);
+ 
+     cupsEnumDests(CUPS_DEST_FLAGS_NONE,
+-                  -1, //NO timeout
++                  1000, // 1 second timeout (was -1 = infinite)
+                   cancel,
+                   0, //TYPE
+                   0, //MASK
+@@ -587,6 +587,8 @@ static gboolean on_handle_get_default_printer(PrintBackend *interface,
+                                               gpointer user_data)
+ {
+     char *def = get_default_printer(b);
++    if (def == NULL)
++        def = g_strdup("");
+     logdebug("%s\n", def);
+     print_backend_complete_get_default_printer(interface, invocation, def);
+     return TRUE;

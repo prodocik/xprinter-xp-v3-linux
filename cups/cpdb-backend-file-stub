@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Stub CPDB FILE backend — registers on D-Bus and does nothing."""
+import sys
+from gi.repository import GLib
+import dbus
+import dbus.service
+import dbus.mainloop.glib
+
+BACKEND_NAME = "org.openprinting.Backend.FILE"
+BACKEND_PATH = "/org/openprinting/Backend/FILE"
+
+class StubBackend(dbus.service.Object):
+    @dbus.service.method(BACKEND_NAME, in_signature='', out_signature='')
+    def ActivateBackend(self):
+        pass
+
+    @dbus.service.method(BACKEND_NAME, in_signature='', out_signature='a(ss)')
+    def GetAll(self):
+        return []
+
+    @dbus.service.method(BACKEND_NAME, in_signature='', out_signature='s')
+    def GetDefaultPrinter(self):
+        return ""
+
+    @dbus.service.method(BACKEND_NAME, in_signature='s', out_signature='')
+    def doListing(self, locale):
+        pass
+
+if __name__ == "__main__":
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    bus = dbus.SessionBus()
+    try:
+        bus_name = dbus.service.BusName(BACKEND_NAME, bus, do_not_queue=True)
+    except dbus.exceptions.NameExistsException:
+        sys.exit(0)
+    obj = StubBackend(bus, BACKEND_PATH)
+    GLib.timeout_add_seconds(30, lambda: sys.exit(0))
+    GLib.MainLoop().run()

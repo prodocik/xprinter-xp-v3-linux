@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""
+CUPS backend for Xprinter via Bluetooth RFCOMM.
+
+Sends raw data from filter to the printer over a direct Bluetooth socket,
+bypassing the system serial backend (which AppArmor blocks).
+
+CUPS backend protocol:
+  - No args: list available devices (discovery mode)
+  - 5-6 args: job-id user title copies options [filename]
+    Reads data from filename or stdin, sends to printer.
+
+Device URI format:
+  xprinter-bt://AA:BB:CC:DD:EE:FF/channel
+  xprinter-bt://AA:BB:CC:DD:EE:FF          (default channel 1)
+"""
+
+import sys
+import os
+import socket
+
+BACKEND_OK = 0
+BACKEND_FAILED = 1
+BACKEND_RETRY = 6
+BACKEND_RETRY_CURRENT = 7
+
+CHUNK_SIZE = 4096
+CONNECT_TIMEOUT = 10
+SEND_TIMEOUT = 30
+
+
+def log(msg):
+    sys.stderr.write(f"ERROR: [xprinter-bt] {msg}\n")
+    sys.stderr.flush()
+
+
+def info(msg):
+    sys.stderr.write(f"INFO: [xprinter-bt] {msg}\n")
+    sys.stderr.flush()
+
+
+def parse_uri(uri):
+    """Parse xprinter-bt://ADDR/channel → (addr, channel)."""
+    rest = uri.replace("xprinter-bt://", "")
+    parts = rest.split("/")
+    addr = parts[0]
+    # Accept both AABBCCDDEEFF and AA:BB:CC:DD:EE:FF
+    if ":" not in addr and len(addr) == 12:
+        addr = ":".join(addr[i:i+2] for i in range(0, 12, 2))
+    channel = int(parts[1]) if len(parts) > 1 else 1
+    return addr, channel
+
+
+def discover():
+    """Discovery mode: output available printers."""
+    # Direct discovery — output our backend type
+    # Format: device-class scheme://uri "name" "info" "device-id" "location"
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["bluetoothctl", "devices"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().split("\n"):
+            parts = line.split(" ", 2)
+            if len(parts) >= 3 and parts[0] == "Device":
+                addr = parts[1]
+                name = parts[2]
+                if any(k in name.lower() for k in ("printer", "xp", "label")):
+                    addr_flat = addr.replace(":", "")
+                    print(f'direct xprinter-bt://{addr_flat} '
+                          f'"{name}" "{name} Bluetooth" "" ""')
+    except Exception:
+        pass
+    return BACKEND_OK
+
+
+def send_to_printer(uri):
+    """Read data from stdin and send to printer via Bluetooth."""
+    addr, channel = parse_uri(uri)
+    info(f"Connecting to {addr} channel {channel}")
+
+    sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+    sock.settimeout(CONNECT_TIMEOUT)
+
+    try:
+        sock.connect((addr, channel))
+    except (socket.timeout, OSError) as e:
+        log(f"Can't connect to {addr}: {e}")
+        sock.close()
+        return BACKEND_RETRY
+
+    info(f"Connected to {addr}")
+    sock.settimeout(SEND_TIMEOUT)
+
+    stdin_bin = os.fdopen(sys.stdin.fileno(), "rb", closefd=False)
+    total = 0
+
+    try:
+        while True:
+            chunk = stdin_bin.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            sock.sendall(chunk)
+            total += len(chunk)
+    except (socket.timeout, OSError) as e:
+        log(f"Send failed after {total} bytes: {e}")
+        sock.close()
+        return BACKEND_RETRY
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+    info(f"Sent {total} bytes OK")
+    return BACKEND_OK
+
+
+def main():
+    if len(sys.argv) == 1:
+        return discover()
+
+    if len(sys.argv) < 6 or len(sys.argv) > 7:
+        sys.stderr.write(
+            "Usage: xprinter-bt job-id user title copies options [filename]\n"
+        )
+        return BACKEND_FAILED
+
+    uri = os.environ.get("DEVICE_URI", "")
+    if not uri:
+        log("DEVICE_URI not set")
+        return BACKEND_FAILED
+
+    filename = sys.argv[6] if len(sys.argv) == 7 else None
+
+    # If filename given, redirect it to stdin
+    if filename:
+        try:
+            fd = os.open(filename, os.O_RDONLY)
+            os.dup2(fd, sys.stdin.fileno())
+            os.close(fd)
+        except OSError as e:
+            log(f"Can't open {filename}: {e}")
+            return BACKEND_FAILED
+
+    return send_to_printer(uri)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""
+Stub CPDB backend using GLib GDBus (compatible with Chrome's GDBus client).
+Responds instantly to all org.openprinting.PrintBackend methods.
+"""
+import sys
+import gi
+gi.require_version('Gio', '2.0')
+from gi.repository import Gio, GLib
+
+IFACE = "org.openprinting.PrintBackend"
+
+INTROSPECT_XML = """
+<node>
+  <interface name='org.openprinting.PrintBackend'>
+    <method name='GetBackendName'>
+      <arg type='s' name='backend_name' direction='out'/>
+    </method>
+    <method name='GetAllPrinters'>
+      <arg type='i' name='num_printers' direction='out'/>
+      <arg type='a(v)' name='printers' direction='out'/>
+    </method>
+    <method name='GetFilteredPrinterList'>
+      <arg type='i' name='num_printers' direction='out'/>
+      <arg type='a(v)' name='printers' direction='out'/>
+    </method>
+    <method name='getDefaultPrinter'>
+      <arg type='s' name='printer_id' direction='out'/>
+    </method>
+    <method name='getPrinterState'>
+      <arg type='s' name='printer_id' direction='in'/>
+      <arg type='s' name='state' direction='out'/>
+    </method>
+    <method name='isAcceptingJobs'>
+      <arg type='s' name='printer_id' direction='in'/>
+      <arg type='b' name='is_accepting' direction='out'/>
+    </method>
+    <method name='GetAllOptions'>
+      <arg type='s' name='printer_id' direction='in'/>
+      <arg type='i' name='num_options' direction='out'/>
+      <arg type='a(sssia(s))' name='options' direction='out'/>
+      <arg type='i' name='num_media' direction='out'/>
+      <arg type='a(siiia(iiii))' name='media' direction='out'/>
+    </method>
+    <method name='GetAllTranslations'>
+      <arg type='s' name='printer_id' direction='in'/>
+      <arg type='s' name='locale' direction='in'/>
+      <arg type='a{ss}' name='translations' direction='out'/>
+    </method>
+    <method name='getOptionTranslation'>
+      <arg type='s' name='printer_name' direction='in'/>
+      <arg type='s' name='option_name' direction='in'/>
+      <arg type='s' name='locale' direction='in'/>
+      <arg type='s' name='translation' direction='out'/>
+    </method>
+    <method name='getChoiceTranslation'>
+      <arg type='s' name='printer_name' direction='in'/>
+      <arg type='s' name='option_name' direction='in'/>
+      <arg type='s' name='choice_name' direction='in'/>
+      <arg type='s' name='locale' direction='in'/>
+      <arg type='s' name='translation' direction='out'/>
+    </method>
+    <method name='getGroupTranslation'>
+      <arg type='s' name='printer_name' direction='in'/>
+      <arg type='s' name='group_name' direction='in'/>
+      <arg type='s' name='locale' direction='in'/>
+      <arg type='s' name='translation' direction='out'/>
+    </method>
+    <method name='doListing'>
+      <arg type='b' name='is_listed' direction='in'/>
+    </method>
+    <method name='keepAlive'/>
+    <method name='ping'>
+      <arg type='s' name='printer_id' direction='in'/>
+    </method>
+    <method name='replace'>
+      <arg type='s' name='previous_dialog_id' direction='in'/>
+    </method>
+    <method name='showRemotePrinters'>
+      <arg type='b' name='is_visible' direction='in'/>
+    </method>
+    <method name='showTemporaryPrinters'>
+      <arg type='b' name='is_visible' direction='in'/>
+    </method>
+    <method name='printSocket'>
+      <arg type='s' name='printer_id' direction='in'/>
+      <arg type='i' name='num_settings' direction='in'/>
+      <arg type='a(ss)' name='settings' direction='in'/>
+      <arg type='s' name='title' direction='in'/>
+      <arg type='s' name='jobid' direction='out'/>
+      <arg type='s' name='socket' direction='out'/>
+    </method>
+  </interface>
+</node>
+"""
+
+backend_name = "FILE"
+
+
+def on_method_call(connection, sender, object_path, interface_name,
+                   method_name, parameters, invocation):
+    if method_name == "GetBackendName":
+        invocation.return_value(GLib.Variant("(s)", (backend_name,)))
+    elif method_name in ("GetAllPrinters", "GetFilteredPrinterList"):
+        invocation.return_value(GLib.Variant("(ia(v))", (0, [])))
+    elif method_name == "getDefaultPrinter":
+        invocation.return_value(GLib.Variant("(s)", ("",)))
+    elif method_name == "getPrinterState":
+        invocation.return_value(GLib.Variant("(s)", ("unknown",)))
+    elif method_name == "isAcceptingJobs":
+        invocation.return_value(GLib.Variant("(b)", (False,)))
+    elif method_name == "GetAllOptions":
+        invocation.return_value(GLib.Variant("(ia(sssia(s))ia(siiia(iiii)))", (0, [], 0, [])))
+    elif method_name == "GetAllTranslations":
+        invocation.return_value(GLib.Variant("(a{ss})", ({},)))
+    elif method_name in ("getOptionTranslation", "getChoiceTranslation", "getGroupTranslation"):
+        invocation.return_value(GLib.Variant("(s)", ("",)))
+    elif method_name == "printSocket":
+        invocation.return_value(GLib.Variant("(ss)", ("", "")))
+    elif method_name in ("doListing", "keepAlive", "ping", "replace",
+                         "showRemotePrinters", "showTemporaryPrinters"):
+        invocation.return_value(None)
+    else:
+        invocation.return_dbus_error(
+            "org.freedesktop.DBus.Error.UnknownMethod",
+            f"No such method: {method_name}")
+
+
+def on_bus_acquired(connection, name):
+    node_info = Gio.DBusNodeInfo.new_for_xml(INTROSPECT_XML)
+    # Register on multiple paths that Chrome might use
+    for path in [f"/org/openprinting/Backend/{backend_name}",
+                 "/org/openprinting/PrintBackend",
+                 f"/org/openprinting/PrintBackend/{backend_name}",
+                 "/"]:
+        try:
+            connection.register_object(
+                path,
+                node_info.interfaces[0],
+                on_method_call,
+                None, None)
+        except Exception:
+            pass
+
+
+def on_name_acquired(connection, name):
+    pass
+
+
+def on_name_lost(connection, name):
+    sys.exit(0)
+
+
+def main():
+    global backend_name
+    backend_name = sys.argv[1] if len(sys.argv) > 1 else "FILE"
+    bus_name = f"org.openprinting.Backend.{backend_name}"
+
+    Gio.bus_own_name(
+        Gio.BusType.SESSION,
+        bus_name,
+        Gio.BusNameOwnerFlags.NONE,
+        on_bus_acquired,
+        on_name_acquired,
+        on_name_lost)
+
+    GLib.timeout_add_seconds(120, lambda: sys.exit(0))
+    GLib.MainLoop().run()
+
+
+if __name__ == "__main__":
+    main()

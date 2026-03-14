@@ -12,12 +12,19 @@ Reads PDF from filename (or stdin), outputs TSPL to stdout.
 
 import sys
 import os
-import struct
+import signal
 import tempfile
 
 # CUPS filter exit codes
 CUPS_BACKEND_OK = 0
 CUPS_BACKEND_FAILED = 1
+CUPS_BACKEND_RETRY = 6
+
+# Ignore SIGPIPE so we get BrokenPipeError instead of a silent kill
+signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+
+# Default margin in mm (0 = full bleed, pdftopdf already handles page fitting)
+MARGIN_MM = 0
 
 
 def mm_to_dots(mm, dpi=203):
@@ -29,7 +36,6 @@ def pts_to_mm(pts):
 
 
 def log(msg):
-    """Log to CUPS error log (stderr)."""
     sys.stderr.write(f"ERROR: [xprinter-tspl] {msg}\n")
     sys.stderr.flush()
 
@@ -40,7 +46,6 @@ def info(msg):
 
 
 def parse_options(options_str):
-    """Parse CUPS options string into a dict."""
     opts = {}
     for item in options_str.split():
         if "=" in item:
@@ -52,54 +57,75 @@ def parse_options(options_str):
 
 
 def get_page_size_mm(opts):
-    """Extract page/label size in mm from CUPS options."""
-    # CUPS passes PageSize option; we parse the PPD name like w164h113
     page_size = opts.get("PageSize", "w164h113")
-
-    # Parse wXXXhYYY format (values are in points)
     if page_size.startswith("w") and "h" in page_size:
         parts = page_size[1:].split("h")
         try:
-            w_pts = float(parts[0])
-            h_pts = float(parts[1])
-            return pts_to_mm(w_pts), pts_to_mm(h_pts)
+            return pts_to_mm(float(parts[0])), pts_to_mm(float(parts[1]))
         except (ValueError, IndexError):
             pass
-
-    # Default: 58x40mm
     return 58.0, 40.0
 
 
+def grayscale_to_tspl_bitmap(gray_image):
+    """
+    Convert a grayscale PIL Image to TSPL bitmap bytes.
+
+    Uses Pillow-only bit packing (no numpy needed).
+    TSPL BITMAP mode 0: 0=black dot, 1=white (no dot).
+    """
+    w, h = gray_image.size
+    width_bytes = (w + 7) // 8
+
+    # Threshold: pixel < 128 → black (print dot) → bit 0
+    #            pixel >= 128 → white (no dot)    → bit 1
+    bw = gray_image.point(lambda x: 0 if x < 128 else 255, "1")
+
+    # Pillow mode '1' tobytes() returns packed bits, MSB first
+    # In Pillow: bit 0 = black, bit 1 = white — matches TSPL convention
+    packed = bw.tobytes()
+
+    # Pillow packs rows to byte boundaries, row stride = ceil(w/8)
+    pillow_stride = (w + 7) // 8
+    if pillow_stride == width_bytes and len(packed) == width_bytes * h:
+        return width_bytes, packed
+
+    # Re-stride if needed
+    result = bytearray(width_bytes * h)
+    for row in range(h):
+        src_off = row * pillow_stride
+        dst_off = row * width_bytes
+        copy_len = min(pillow_stride, width_bytes)
+        result[dst_off:dst_off + copy_len] = packed[src_off:src_off + copy_len]
+    return width_bytes, bytes(result)
+
+
 def pdf_to_tspl(pdf_path, copies, options):
-    """Convert PDF to TSPL commands and write to stdout."""
     try:
-        import fitz  # PyMuPDF
+        import fitz
     except ImportError:
-        log("PyMuPDF (fitz) not installed. Run: pip3 install PyMuPDF")
+        log("PyMuPDF (fitz) not installed")
         return CUPS_BACKEND_FAILED
 
     try:
         from PIL import Image
     except ImportError:
-        log("Pillow not installed. Run: pip3 install Pillow")
+        log("Pillow not installed")
         return CUPS_BACKEND_FAILED
 
     opts = parse_options(options)
 
-    # Get label dimensions
     width_mm, height_mm = get_page_size_mm(opts)
     info(f"Label size: {width_mm:.1f} x {height_mm:.1f} mm")
 
-    # Get printer options
     density = int(opts.get("XprinterDensity", "8"))
     speed = int(opts.get("XprinterSpeed", "3"))
     gap_mm = int(opts.get("XprinterGap", "2"))
-
     dpi = 203
     target_w = mm_to_dots(width_mm, dpi)
     target_h = mm_to_dots(height_mm, dpi)
 
-    info(f"Target: {target_w}x{target_h} dots, density={density}, speed={speed}, gap={gap_mm}mm")
+    info(f"Target: {target_w}x{target_h} dots, density={density}, speed={speed}")
 
     try:
         doc = fitz.open(pdf_path)
@@ -111,10 +137,13 @@ def pdf_to_tspl(pdf_path, copies, options):
 
     for page_num in range(len(doc)):
         page = doc[page_num]
-
         info(f"Processing page {page_num + 1}/{len(doc)}")
 
-        # Render page at printer DPI
+        # Render page and scale to fit label, preserving aspect ratio
+        page_rect = page.rect
+        info(f"PDF page: {page_rect.width:.1f}x{page_rect.height:.1f} pts")
+
+        # Render at high enough resolution then scale down
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False)
@@ -124,45 +153,38 @@ def pdf_to_tspl(pdf_path, copies, options):
         scale = min(target_w / img.width, target_h / img.height)
         new_w = int(img.width * scale)
         new_h = int(img.height * scale)
-        img = img.resize((new_w, new_h), Image.LANCZOS)
+        if scale != 1.0:
+            img = img.resize((new_w, new_h), Image.LANCZOS)
 
         # Center on white canvas
-        canvas = Image.new("RGB", (target_w, target_h), (255, 255, 255))
+        canvas = Image.new("L", (target_w, target_h), 255)
         x_off = (target_w - new_w) // 2
         y_off = (target_h - new_h) // 2
-        canvas.paste(img, (x_off, y_off))
+        canvas.paste(img.convert("L"), (x_off, y_off))
 
-        # Convert to 1-bit monochrome
-        mono = canvas.convert("L").convert("1")
-
-        # Build bitmap data (TSPL format: 1=black, MSB first)
-        width_bytes = (target_w + 7) // 8
-        bitmap_data = bytearray(width_bytes * target_h)
-        raw = mono.tobytes()
-
-        for row in range(target_h):
-            for col in range(target_w):
-                idx = row * target_w + col
-                if idx < len(raw) and raw[idx] == 0:  # black pixel
-                    byte_idx = row * width_bytes + col // 8
-                    bit_idx = 7 - (col % 8)
-                    bitmap_data[byte_idx] |= (1 << bit_idx)
+        # Convert to TSPL bitmap
+        width_bytes, bitmap_data = grayscale_to_tspl_bitmap(canvas)
 
         # Build TSPL commands
         tspl = b""
-        tspl += f"SIZE {width_mm:.1f} mm, {height_mm:.1f} mm\r\n".encode("ascii")
-        tspl += f"GAP {gap_mm} mm, 0 mm\r\n".encode("ascii")
-        tspl += f"DIRECTION 1,0\r\n".encode("ascii")
-        tspl += f"DENSITY {density}\r\n".encode("ascii")
-        tspl += f"SPEED {speed}\r\n".encode("ascii")
+        tspl += f"SIZE {width_mm:.1f} mm, {height_mm:.1f} mm\r\n".encode()
+        tspl += f"GAP {gap_mm} mm, 0 mm\r\n".encode()
+        tspl += b"DIRECTION 1,0\r\n"
+        tspl += f"DENSITY {density}\r\n".encode()
+        tspl += f"SPEED {speed}\r\n".encode()
         tspl += b"CLS\r\n"
-        tspl += f"BITMAP 0,0,{width_bytes},{target_h},0,".encode("ascii")
-        tspl += bytes(bitmap_data)
-        tspl += f"\r\nPRINT {copies},1\r\n".encode("ascii")
+        tspl += f"BITMAP 0,0,{width_bytes},{target_h},0,".encode()
+        tspl += bitmap_data
+        tspl += f"\r\nPRINT {copies},1\r\n".encode()
 
-        stdout_bin.write(tspl)
+        try:
+            stdout_bin.write(tspl)
+            stdout_bin.flush()
+        except BrokenPipeError:
+            log("BrokenPipeError: printer connection lost")
+            doc.close()
+            return CUPS_BACKEND_RETRY
 
-    stdout_bin.flush()
     doc.close()
     info("Done")
     return CUPS_BACKEND_OK
@@ -187,7 +209,6 @@ def main():
     if filename:
         pdf_path = filename
     else:
-        # Read from stdin into temp file
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         try:
             stdin_bin = os.fdopen(sys.stdin.fileno(), "rb", closefd=False)
