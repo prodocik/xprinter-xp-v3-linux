@@ -115,7 +115,7 @@ def build_label_job(image_1bit, width_mm, height_mm, copies=1,
     builder = TSPLBuilder()
     builder.size(width_mm, height_mm)
     builder.gap(gap_mm)
-    builder.direction(1)
+    builder.direction(0)
     builder.density(density)
     builder.speed(speed)
     builder.cls()

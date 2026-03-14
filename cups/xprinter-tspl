@@ -149,17 +149,22 @@ def pdf_to_tspl(pdf_path, copies, options):
         pix = page.get_pixmap(matrix=mat, alpha=False)
         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
-        # Scale to fit label, maintaining aspect ratio
-        scale = min(target_w / img.width, target_h / img.height)
+        # Small margin to prevent clipping at edges (dots)
+        margin = mm_to_dots(1, dpi)
+        print_w = target_w - 2 * margin
+        print_h = target_h - 2 * margin
+
+        # Scale to fit printable area, maintaining aspect ratio
+        scale = min(print_w / img.width, print_h / img.height)
         new_w = int(img.width * scale)
         new_h = int(img.height * scale)
         if scale != 1.0:
             img = img.resize((new_w, new_h), Image.LANCZOS)
 
-        # Center on white canvas
+        # Place on white canvas with margin, center horizontally
         canvas = Image.new("L", (target_w, target_h), 255)
-        x_off = (target_w - new_w) // 2
-        y_off = (target_h - new_h) // 2
+        x_off = margin + (print_w - new_w) // 2
+        y_off = margin
         canvas.paste(img.convert("L"), (x_off, y_off))
 
         # Convert to TSPL bitmap
@@ -169,7 +174,7 @@ def pdf_to_tspl(pdf_path, copies, options):
         tspl = b""
         tspl += f"SIZE {width_mm:.1f} mm, {height_mm:.1f} mm\r\n".encode()
         tspl += f"GAP {gap_mm} mm, 0 mm\r\n".encode()
-        tspl += b"DIRECTION 1,0\r\n"
+        tspl += b"DIRECTION 0,0\r\n"
         tspl += f"DENSITY {density}\r\n".encode()
         tspl += f"SPEED {speed}\r\n".encode()
         tspl += b"CLS\r\n"
