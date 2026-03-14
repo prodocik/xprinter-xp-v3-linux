@@ -13,7 +13,10 @@ ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="0416", RUN+="/usr/local/b
 ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="1fc9", RUN+="/usr/local/bin/xprinter-autoswitch"
 
 # USB printer unplugged — switch back to Bluetooth
-ACTION=="remove", SUBSYSTEM=="usbmisc", RUN+="/usr/local/bin/xprinter-autoswitch"
+# ENV{ID_VENDOR_ID} works on remove (unlike ATTRS)
+ACTION=="remove", SUBSYSTEM=="usbmisc", ENV{ID_VENDOR_ID}=="0483|154f|4b43|0416|1fc9", RUN+="/usr/local/bin/xprinter-autoswitch"
+# Fallback: any USB printer removal triggers check
+ACTION=="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{ID_USB_INTERFACES}=="*:0701*", RUN+="/usr/local/bin/xprinter-autoswitch"
 
 # Serial USB (ttyUSB)
 ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", RUN+="/usr/local/bin/xprinter-autoswitch"
