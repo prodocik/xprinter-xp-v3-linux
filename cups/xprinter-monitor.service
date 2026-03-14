@@ -1,0 +1,12 @@
+[Unit]
+Description=Xprinter USB/Bluetooth auto-switch monitor
+After=cups.service bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/xprinter-autoswitch --watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

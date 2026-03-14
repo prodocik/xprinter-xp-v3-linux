@@ -169,9 +169,36 @@ switch_to_bluetooth() {
     cupsaccept "$PRINTER_NAME" 2>/dev/null
 }
 
+watch_loop() {
+    log "Watching for connection changes..."
+    local last_uri=""
+    while true; do
+        local current
+        current=$(get_current_uri)
+        local usb_uri
+        usb_uri=$(find_usb_uri 2>/dev/null)
+
+        if [ -n "$usb_uri" ] && ! echo "$current" | grep -q "usb://"; then
+            switch_to_usb "$usb_uri"
+        elif [ -z "$usb_uri" ] && echo "$current" | grep -q "usb://"; then
+            local bt_addr
+            bt_addr=$(get_bt_address)
+            if [ -n "$bt_addr" ]; then
+                switch_to_bluetooth "$bt_addr"
+            fi
+        fi
+        sleep 3
+    done
+}
+
 main() {
     if [ "$1" = "--status" ]; then
         show_status
+        exit 0
+    fi
+
+    if [ "$1" = "--watch" ]; then
+        watch_loop
         exit 0
     fi
 
