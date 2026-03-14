@@ -19,6 +19,23 @@ LABEL_SIZES = {
 
 DEFAULT_SIZE = "58 × 40 мм"
 
+# Map (width_mm, height_mm) to CUPS PageSize code
+SIZE_TO_CUPS_CODE = {
+    (20, 10): "w57h28",
+    (30, 20): "w85h57",
+    (40, 20): "w113h57",
+    (40, 30): "w113h85",
+    (58, 30): "w164h85",
+    (58, 40): "w164h113",
+    (60, 40): "w170h113",
+    (80, 50): "w227h142",
+    (80, 60): "w227h170",
+    (100, 60): "w283h170",
+    (100, 70): "w283h198",
+    (100, 150): "w283h425",
+    (120, 75): "w340h213",
+}
+
 
 def mm_to_dots(mm, dpi=203):
     """Convert millimeters to dots at given DPI."""

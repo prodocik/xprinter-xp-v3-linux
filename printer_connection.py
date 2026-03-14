@@ -217,10 +217,83 @@ class WiFiConnection(PrinterConnection):
         return f"WiFi: {self._host or 'не выбран'}:{self._port}"
 
 
+class CUPSConnection(PrinterConnection):
+    """Print via CUPS (works with any connection type configured in CUPS).
+
+    Sends PDF files directly — the CUPS filter handles conversion to TSPL.
+    """
+
+    def __init__(self, printer_name="XprinterV3"):
+        self._printer_name = printer_name
+        self._connected = False
+        self._pdf_path = None  # Set before send() to print a PDF file
+
+    def connect(self):
+        import subprocess
+        result = subprocess.run(
+            ["lpstat", "-p", self._printer_name],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            raise ConnectionError(f"Принтер {self._printer_name} не найден в CUPS")
+        self._connected = True
+
+    def send_pdf(self, pdf_path, copies=1, page_size="w164h113",
+                 density=8, speed=3, gap_mm=2):
+        """Send a PDF file through CUPS (filter converts to TSPL)."""
+        if not self._connected:
+            raise ConnectionError("CUPS не подключён")
+        import subprocess
+        result = subprocess.run(
+            ["lp", "-d", self._printer_name,
+             "-n", str(copies),
+             "-o", f"PageSize={page_size}",
+             "-o", f"XprinterDensity={density}",
+             "-o", f"XprinterSpeed={speed}",
+             "-o", f"XprinterGap={gap_mm}",
+             "-o", "fit-to-page",
+             pdf_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            raise ConnectionError(f"Ошибка CUPS: {result.stderr.strip()}")
+
+    def send(self, data: bytes):
+        """Send raw data through CUPS."""
+        if not self._connected:
+            raise ConnectionError("CUPS не подключён")
+        import subprocess
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+            f.write(data)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                ["lp", "-d", self._printer_name, "-o", "raw", tmp_path],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                raise ConnectionError(f"Ошибка CUPS: {result.stderr.strip()}")
+        finally:
+            os.unlink(tmp_path)
+
+    def disconnect(self):
+        self._connected = False
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+    @property
+    def display_name(self):
+        return f"CUPS: {self._printer_name}"
+
+
 class ConnectionManager:
     """Manages the active printer connection."""
 
     CONNECTION_TYPES = {
+        "CUPS": CUPSConnection,
         "USB": USBConnection,
         "Bluetooth": BluetoothConnection,
         "WiFi": WiFiConnection,

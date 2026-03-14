@@ -9,9 +9,9 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk, Gdk, GdkPixbuf, GLib, Gio
 
-from label_sizes import LABEL_SIZES, DEFAULT_SIZE
+from label_sizes import LABEL_SIZES, DEFAULT_SIZE, SIZE_TO_CUPS_CODE
 from pdf_renderer import PDFDocument, prepare_label_image, pil_to_gdk_pixbuf
-from printer_connection import ConnectionManager, USBConnection, BluetoothConnection
+from printer_connection import ConnectionManager, CUPSConnection, USBConnection, BluetoothConnection
 from tspl import build_label_job
 from preferences import Preferences
 
@@ -119,8 +119,8 @@ class XPrinterWindow(Adw.ApplicationWindow):
 
         # Connection type
         bottom.append(Gtk.Label(label="Подключение:"))
-        self._conn_dropdown = Gtk.DropDown.new_from_strings(["USB", "Bluetooth", "WiFi"])
-        conn_types = ["USB", "Bluetooth", "WiFi"]
+        self._conn_dropdown = Gtk.DropDown.new_from_strings(["CUPS", "USB", "Bluetooth", "WiFi"])
+        conn_types = ["CUPS", "USB", "Bluetooth", "WiFi"]
         if self._prefs["connection_type"] in conn_types:
             self._conn_dropdown.set_selected(conn_types.index(self._prefs["connection_type"]))
         bottom.append(self._conn_dropdown)
@@ -247,7 +247,7 @@ class XPrinterWindow(Adw.ApplicationWindow):
 
     def _on_connect_clicked(self, btn):
         idx = self._conn_dropdown.get_selected()
-        conn_type = ["USB", "Bluetooth", "WiFi"][idx]
+        conn_type = ["CUPS", "USB", "Bluetooth", "WiFi"][idx]
         self._prefs["connection_type"] = conn_type
         self._prefs.save()
 
@@ -258,7 +258,10 @@ class XPrinterWindow(Adw.ApplicationWindow):
             return
 
         try:
-            if conn_type == "USB":
+            if conn_type == "CUPS":
+                self._conn_mgr.create_connection("CUPS")
+
+            elif conn_type == "USB":
                 ports = USBConnection.find_ports()
                 if not ports:
                     self._show_error("USB-принтер не найден. Подключите принтер.")
@@ -304,11 +307,25 @@ class XPrinterWindow(Adw.ApplicationWindow):
 
         def do_print():
             try:
-                img = self._pdf.render_page(self._current_page, dpi=203)
-                mono = prepare_label_image(img, w_mm, h_mm)
-                data = build_label_job(mono, w_mm, h_mm, copies=copies,
-                                       density=density, speed=speed, gap_mm=gap_mm)
-                self._conn_mgr.send(data)
+                conn = self._conn_mgr.connection
+                if isinstance(conn, CUPSConnection):
+                    # Send PDF directly — CUPS filter handles conversion
+                    page_size = SIZE_TO_CUPS_CODE.get((w_mm, h_mm), "w164h113")
+                    conn.send_pdf(
+                        self._pdf.path,
+                        copies=copies,
+                        page_size=page_size,
+                        density=density,
+                        speed=speed,
+                        gap_mm=gap_mm,
+                    )
+                else:
+                    # Direct connection — build TSPL ourselves
+                    img = self._pdf.render_page(self._current_page, dpi=203)
+                    mono = prepare_label_image(img, w_mm, h_mm)
+                    data = build_label_job(mono, w_mm, h_mm, copies=copies,
+                                           density=density, speed=speed, gap_mm=gap_mm)
+                    self._conn_mgr.send(data)
                 GLib.idle_add(self._status_label.set_label, "Напечатано!")
             except Exception as e:
                 GLib.idle_add(self._show_error, f"Ошибка печати: {e}")
