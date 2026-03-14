@@ -11,7 +11,7 @@ PRINTER_NAME="XprinterV3"
 BT_ADDRESS=""  # Will be read from saved config or CUPS
 
 # Known Xprinter USB vendor IDs
-XPRINTER_USB_VIDS="0483 154f 4b43 0416"
+XPRINTER_USB_VIDS="0483 154f 4b43 0416 1fc9"
 
 log() {
     logger -t xprinter-autoswitch "$1"
@@ -43,34 +43,37 @@ get_bt_address() {
     fi
 }
 
-# Find USB printer device
-find_usb_device() {
-    # Check /dev/usb/lp*
+# Find USB printer — returns CUPS USB URI
+find_usb_uri() {
+    # Ask CUPS for connected USB devices
+    local usb_uri
+    usb_uri=$(lpinfo -v 2>/dev/null | grep -i "usb://" | grep -iE "xprinter|4barcode|3b-t|label|printer-80" | head -1 | awk '{print $2}')
+    if [ -n "$usb_uri" ]; then
+        echo "$usb_uri"
+        return 0
+    fi
+
+    # Fallback: check by known vendor IDs in sysfs
     for dev in /dev/usb/lp*; do
         [ -e "$dev" ] || continue
-
-        # Verify it's an Xprinter by checking USB vendor ID
-        for sysdev in /sys/class/usbmisc/$(basename "$dev")/device/../; do
+        local basename
+        basename=$(basename "$dev")
+        for sysdev in /sys/class/usbmisc/"$basename"/device/../; do
             local vid
             vid=$(cat "${sysdev}idVendor" 2>/dev/null)
             for known_vid in $XPRINTER_USB_VIDS; do
                 if [ "$vid" = "$known_vid" ]; then
-                    echo "$dev"
+                    echo "usb://$dev"
                     return 0
                 fi
             done
         done
-
-        # If we can't verify vendor, still return the device
-        # (user might have a different USB VID)
-        echo "$dev"
-        return 0
     done
 
-    # Check /dev/ttyUSB* (serial USB)
+    # Fallback: serial USB
     for dev in /dev/ttyUSB*; do
         [ -e "$dev" ] || continue
-        echo "$dev"
+        echo "serial:${dev}?baud=9600"
         return 0
     done
 
@@ -85,8 +88,8 @@ get_current_uri() {
 show_status() {
     local uri
     uri=$(get_current_uri)
-    local usb_dev
-    usb_dev=$(find_usb_device 2>/dev/null)
+    local usb_uri
+    usb_uri=$(find_usb_uri 2>/dev/null)
 
     echo "=== Xprinter Connection Status ==="
     echo "CUPS URI:    ${uri:-not configured}"
@@ -99,8 +102,8 @@ show_status() {
         echo "Connection:  unknown"
     fi
 
-    if [ -n "$usb_dev" ]; then
-        echo "USB device:  $usb_dev (connected)"
+    if [ -n "$usb_uri" ]; then
+        echo "USB device:  $usb_uri (connected)"
     else
         echo "USB device:  not connected"
     fi
@@ -121,14 +124,7 @@ show_status() {
 }
 
 switch_to_usb() {
-    local dev="$1"
-    local uri
-
-    if [[ "$dev" == /dev/ttyUSB* ]]; then
-        uri="serial:${dev}?baud=9600"
-    else
-        uri="usb://${dev}"
-    fi
+    local uri="$1"
 
     local current
     current=$(get_current_uri)
@@ -138,6 +134,17 @@ switch_to_usb() {
     fi
 
     log "Switching to USB: $uri"
+
+    # Remove auto-created duplicate printer (CUPS may auto-add USB printers)
+    for dup in $(lpstat -a 2>/dev/null | awk '{print $1}' | grep -v "$PRINTER_NAME" | grep -v "Phaser"); do
+        local dup_uri
+        dup_uri=$(lpstat -v "$dup" 2>/dev/null | awk '{print $NF}')
+        if echo "$dup_uri" | grep -qi "4barcode\|3b-t\|xprinter\|printer-80"; then
+            log "Removing duplicate printer: $dup ($dup_uri)"
+            lpadmin -x "$dup" 2>/dev/null || true
+        fi
+    done
+
     lpadmin -p "$PRINTER_NAME" -v "$uri" -E 2>/dev/null
     cupsenable "$PRINTER_NAME" 2>/dev/null
     cupsaccept "$PRINTER_NAME" 2>/dev/null
@@ -175,10 +182,10 @@ main() {
     fi
 
     # Try USB first (faster, more reliable)
-    local usb_dev
-    usb_dev=$(find_usb_device 2>/dev/null)
-    if [ -n "$usb_dev" ]; then
-        switch_to_usb "$usb_dev"
+    local usb_uri
+    usb_uri=$(find_usb_uri 2>/dev/null)
+    if [ -n "$usb_uri" ]; then
+        switch_to_usb "$usb_uri"
         exit 0
     fi
 

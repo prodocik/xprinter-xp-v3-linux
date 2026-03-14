@@ -2,11 +2,15 @@
 # When USB printer is plugged in — switch CUPS to USB
 # When USB printer is unplugged — switch CUPS back to Bluetooth
 
-# USB printer plugged in (common Xprinter vendor IDs)
+# Xprinter USB auto-switching
+# Common Xprinter USB vendor IDs: 0483, 154f, 4b43, 0416, 1fc9 (NXP/Printer-80)
+
+# USB printer plugged in
 ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="0483", RUN+="/usr/local/bin/xprinter-autoswitch"
 ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="154f", RUN+="/usr/local/bin/xprinter-autoswitch"
 ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="4b43", RUN+="/usr/local/bin/xprinter-autoswitch"
 ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="0416", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="add", SUBSYSTEM=="usbmisc", ATTRS{idVendor}=="1fc9", RUN+="/usr/local/bin/xprinter-autoswitch"
 
 # USB printer unplugged — switch back to Bluetooth
 ACTION=="remove", SUBSYSTEM=="usbmisc", RUN+="/usr/local/bin/xprinter-autoswitch"
@@ -14,4 +18,5 @@ ACTION=="remove", SUBSYSTEM=="usbmisc", RUN+="/usr/local/bin/xprinter-autoswitch
 # Serial USB (ttyUSB)
 ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", RUN+="/usr/local/bin/xprinter-autoswitch"
 ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="154f", RUN+="/usr/local/bin/xprinter-autoswitch"
-ACTION=="remove", SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="0483|154f", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="1fc9", RUN+="/usr/local/bin/xprinter-autoswitch"
+ACTION=="remove", SUBSYSTEM=="tty", RUN+="/usr/local/bin/xprinter-autoswitch"
