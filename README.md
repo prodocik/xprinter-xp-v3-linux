@@ -314,3 +314,15 @@ If this project saved you from the headache of printing labels on Linux — **pl
 ## License
 
 MIT — use it however you want.
+
+## Support Development
+
+
+
+**Solana** - 35XhyaYjHirh6gs5C3eiCYVXPHEmpuiXAgjmgBr1tSU2
+
+**Ethereum** - 0xEb3C23Ad55c7F9ECbf5791F78C6123526667867D
+
+**Bitcoin** - bc1qx6j4yswhckt4w3myfc3lluzz79rahq403m0jm3
+
+Support development: **[GitHub Sponsors](https://github.com/sponsors/prodocik)**.
